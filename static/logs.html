@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Execution Logs &amp; Traces | AI Assistant</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+
+  <!-- Bootstrap 5 CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <link rel="stylesheet" href="logs.css">
+</head>
+
+<body class="dark-theme">
+  <!-- Ambient background glow -->
+  <div class="ambient-mesh mesh-top"></div>
+  <div class="ambient-mesh mesh-bottom"></div>
+
+  <div class="container-fluid py-3 px-3 px-md-4 main-container">
+    <!-- Navbar Header -->
+    <header class="logs-header d-flex align-items-center justify-content-between p-3 rounded-4 mb-3 border">
+      <div class="d-flex align-items-center gap-3">
+        <div class="header-icon-box d-flex align-items-center justify-content-center">
+          <i class="bi bi-activity fs-4 text-white"></i>
+        </div>
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <h5 class="mb-0 fw-bold title-text text-white">Execution Logs &amp; Traces</h5>
+            <span class="badge-status-pill">Observability</span>
+          </div>
+          <small class="text-secondary">Real-time local SQLite &amp; Portkey execution monitoring</small>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-2">
+        <a href="/" class="nav-action-btn text-decoration-none d-flex align-items-center" title="Return to Chat">
+          <i class="bi bi-chat-left-dots me-1"></i>
+          <span>Chat</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Top Summary Metrics Cards -->
+    <section class="row g-3 mb-3" id="summarySection">
+      <div class="col-6 col-md-3">
+        <div class="metric-card p-3 rounded-4 border">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="metric-label">Total Calls</span>
+            <i class="bi bi-cpu text-primary fs-5"></i>
+          </div>
+          <h3 class="metric-value mb-0" id="statTotalCalls">0</h3>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="metric-card p-3 rounded-4 border">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="metric-label">Errors</span>
+            <i class="bi bi-exclamation-octagon text-danger fs-5"></i>
+          </div>
+          <h3 class="metric-value text-danger mb-0" id="statErrors">0</h3>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="metric-card p-3 rounded-4 border">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="metric-label">Avg Latency</span>
+            <i class="bi bi-stopwatch text-warning fs-5"></i>
+          </div>
+          <h3 class="metric-value text-warning mb-0" id="statAvgLatency">0 ms</h3>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="metric-card p-3 rounded-4 border">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="metric-label">Total Tokens</span>
+            <i class="bi bi-coin text-success fs-5"></i>
+          </div>
+          <h3 class="metric-value text-success mb-0" id="statTotalTokens">0</h3>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filter Control Panel -->
+    <section class="filter-panel p-3 rounded-4 mb-3 border">
+      <div class="row g-3 align-items-center">
+        <!-- Status Filter -->
+        <div class="col-12 col-sm-6 col-md-2">
+          <label class="filter-label mb-1" for="statusFilter">Status</label>
+          <select id="statusFilter" class="form-select form-select-sm dark-input">
+            <option value="">All Statuses</option>
+            <option value="success">Success</option>
+            <option value="error">Error</option>
+          </select>
+        </div>
+
+        <!-- Session ID Filter -->
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="filter-label mb-1" for="sessionIdFilter">Session ID</label>
+          <input type="text" id="sessionIdFilter" class="form-control form-control-sm dark-input"
+            placeholder="Filter by session...">
+        </div>
+
+        <!-- Limit Filter -->
+        <div class="col-6 col-sm-4 col-md-2">
+          <label class="filter-label mb-1" for="limitFilter">Limit</label>
+          <select id="limitFilter" class="form-select form-select-sm dark-input">
+            <option value="50">50 rows</option>
+            <option value="100" selected>100 rows</option>
+            <option value="200">200 rows</option>
+            <option value="500">500 rows</option>
+          </select>
+        </div>
+
+        <!-- Only Tool Calls Checkbox -->
+        <div class="col-6 col-sm-4 col-md-2 d-flex align-items-center pt-3">
+          <div class="form-check">
+            <input class="form-check-input dark-check" type="checkbox" id="toolOnlyCheck">
+            <label class="form-check-label filter-label pointer" for="toolOnlyCheck">
+              Tool calls only
+            </label>
+          </div>
+        </div>
+
+        <!-- Buttons & Auto-Refresh Toggle -->
+        <div class="col-12 col-sm-4 col-md-3 d-flex align-items-center justify-content-sm-end gap-3 pt-3">
+          <div class="form-check form-switch d-flex align-items-center gap-2 mb-0"
+            title="Auto-refresh logs every 5 seconds">
+            <input class="form-check-input pointer" type="checkbox" role="switch" id="autoRefreshToggle">
+            <label class="form-check-label filter-label small pointer" for="autoRefreshToggle">
+              Live (5s)
+            </label>
+          </div>
+
+          <button id="refreshBtn" class="btn btn-sm btn-primary-gradient px-3 py-1 d-flex align-items-center gap-1">
+            <i class="bi bi-arrow-clockwise" id="refreshIcon"></i>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Logs Table Container -->
+    <div class="table-card rounded-4 border p-0 overflow-hidden">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 align-middle custom-logs-table">
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Trace ID</th>
+              <th scope="col">Session ID</th>
+              <th scope="col">Provider</th>
+              <th scope="col">Model</th>
+              <th scope="col">Tool</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="text-end">Latency</th>
+              <th scope="col" class="text-end">In</th>
+              <th scope="col" class="text-end">Out</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody">
+            <tr>
+              <td colspan="10" class="text-center py-5 text-secondary">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                Loading execution logs...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="modal fade" id="logDetailModal" tabindex="-1" aria-labelledby="logDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content dark-modal border rounded-4">
+        <div class="modal-header border-bottom border-dark px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-file-earmark-code fs-4 text-primary"></i>
+            <h5 class="modal-title fw-bold text-white mb-0" id="logDetailModalLabel">Log Entry Details</h5>
+          </div>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body px-4 py-3" id="logDetailBody">
+
+        </div>
+        <div class="modal-footer border-top border-dark px-4 py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="modal fade" id="traceModal" tabindex="-1" aria-labelledby="traceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content dark-modal border rounded-4">
+        <div class="modal-header border-bottom border-dark px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-bezier2 fs-4 text-info"></i>
+            <div>
+              <h5 class="modal-title fw-bold text-white mb-0" id="traceModalLabel">Trace Execution Flow</h5>
+              <small class="text-secondary font-monospace" id="traceModalSubtitle">Trace: </small>
+            </div>
+          </div>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body px-4 py-3" id="traceModalBody">
+
+        </div>
+        <div class="modal-footer border-top border-dark px-4 py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="logs.js"></script>
+</body>
+
+</html>

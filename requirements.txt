@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic-settings
+langchain
+langchain-core
+langchain-google-genai
+httpx
+ddgs
+trafilatura
+portkey-ai
+sqlalchemy
+beautifulsoup4
+langchain-openai
