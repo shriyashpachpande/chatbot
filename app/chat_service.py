@@ -1,13 +1,16 @@
 import json
+import logging
 import time
 import uuid
 from typing import Dict, Any, List
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 from app.config import settings
-from app.llm import get_llm, get_llm_provider
+from app.llm import get_llm, get_llm_provider, get_direct_llm
 from app.tools import TOOLS
 from app.database import save_message, get_history, save_log
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a helpful, friendly assistant. Reply in the same language the user writes in. "
@@ -91,8 +94,17 @@ def chat(session_id: str, message: str) -> Dict[str, Any]:
     tool_map = {t.name: t for t in TOOLS}
 
     try:
-        llm = get_llm(model_name=model, trace_id=trace_id, session_id=session_id)
-        llm_with_tools = llm.bind_tools(TOOLS)
+        try:
+            llm = get_llm(model_name=model, trace_id=trace_id, session_id=session_id)
+            llm_with_tools = llm.bind_tools(TOOLS)
+        except Exception as init_exc:
+            if settings.USE_PORTKEY and settings.GEMINI_API_KEY:
+                logger.warning("Portkey init failed (%s). Falling back to direct Gemini.", init_exc)
+                provider = "gemini (fallback)"
+                llm = get_direct_llm(model_name=model)
+                llm_with_tools = llm.bind_tools(TOOLS)
+            else:
+                raise init_exc
 
         # Agent Loop: Maximum 5 iterations
         for iteration in range(5):
@@ -103,7 +115,18 @@ def chat(session_id: str, message: str) -> Dict[str, Any]:
                 "last_message": str(messages_payload[-1].content)[:500]
             })
 
-            response = llm_with_tools.invoke(messages_payload)
+            try:
+                response = llm_with_tools.invoke(messages_payload)
+            except Exception as invoke_exc:
+                if settings.USE_PORTKEY and settings.GEMINI_API_KEY and provider != "gemini (fallback)":
+                    logger.warning("Portkey invocation failed (%s). Retrying with direct Gemini...", invoke_exc)
+                    provider = "gemini (fallback)"
+                    llm = get_direct_llm(model_name=model)
+                    llm_with_tools = llm.bind_tools(TOOLS)
+                    response = llm_with_tools.invoke(messages_payload)
+                else:
+                    raise invoke_exc
+
             llm_latency_ms = round((time.perf_counter() - llm_start) * 1000, 2)
 
             # Token usage extraction
@@ -248,8 +271,17 @@ async def chat_stream(session_id: str, message: str):
     tool_map = {t.name: t for t in TOOLS}
 
     try:
-        llm = get_llm(model_name=model, trace_id=trace_id, session_id=session_id)
-        llm_with_tools = llm.bind_tools(TOOLS)
+        try:
+            llm = get_llm(model_name=model, trace_id=trace_id, session_id=session_id)
+            llm_with_tools = llm.bind_tools(TOOLS)
+        except Exception as init_exc:
+            if settings.USE_PORTKEY and settings.GEMINI_API_KEY:
+                logger.warning("Portkey stream init failed (%s). Falling back to direct Gemini.", init_exc)
+                provider = "gemini (fallback)"
+                llm = get_direct_llm(model_name=model)
+                llm_with_tools = llm.bind_tools(TOOLS)
+            else:
+                raise init_exc
 
         for iteration in range(5):
             llm_start = time.perf_counter()
@@ -260,7 +292,18 @@ async def chat_stream(session_id: str, message: str):
             })
 
             # Check if this iteration has tool calls
-            response = llm_with_tools.invoke(messages_payload)
+            try:
+                response = llm_with_tools.invoke(messages_payload)
+            except Exception as invoke_exc:
+                if settings.USE_PORTKEY and settings.GEMINI_API_KEY and provider != "gemini (fallback)":
+                    logger.warning("Portkey stream invocation failed (%s). Retrying with direct Gemini...", invoke_exc)
+                    provider = "gemini (fallback)"
+                    llm = get_direct_llm(model_name=model)
+                    llm_with_tools = llm.bind_tools(TOOLS)
+                    response = llm_with_tools.invoke(messages_payload)
+                else:
+                    raise invoke_exc
+
             llm_latency_ms = round((time.perf_counter() - llm_start) * 1000, 2)
 
             raw_reply_text = extract_text_from_content(response.content)

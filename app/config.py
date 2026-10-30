@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.1-flash-lite"
     PORTKEY_API_KEY: str = ""
+    PORTKEY_VIRTUAL_KEY: str = ""
     PORTKEY_PROVIDER: str = "gemini"
     USE_PORTKEY: bool = False
     DATABASE_URL: str = "sqlite:///chatbot.db"
