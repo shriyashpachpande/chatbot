@@ -13,7 +13,10 @@ from app.database import save_message, get_history, save_log
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are a helpful, friendly assistant. Reply in the same language the user writes in. "
+    "You are a helpful, intelligent assistant. "
+    "LANGUAGE POLICY: Always answer in English by default. "
+    "Only if the user explicitly writes in Hinglish (Hindi written using the Latin/English alphabet, e.g. 'kaise ho', 'kya haal hai', 'batao na'), reply in Hinglish. "
+    "In all other cases (including Hindi in Devanagari, Spanish, French, or standard English), reply strictly in English. "
     "Use web_search for current events or anything you are not sure about. "
     "When the user shares a link, use fetch_url and answer from its content. "
     "Mention source URLs when you used the tools. "
@@ -73,9 +76,10 @@ def chat(session_id: str, message: str) -> Dict[str, Any]:
             messages_payload.append(AIMessage(content=past["content"]))
     messages_payload.append(HumanMessage(content=message))
 
-    # Check if API key is provided
-    if not settings.GEMINI_API_KEY:
-        error_msg = "GEMINI_API_KEY missing in .env file. Please add your key to enable Gemini responses."
+    # Check if appropriate API key is provided
+    has_valid_key = (settings.USE_PORTKEY and settings.PORTKEY_API_KEY) or bool(settings.GEMINI_API_KEY)
+    if not has_valid_key:
+        error_msg = "API key missing in .env file. Please add GEMINI_API_KEY (for direct Gemini) or PORTKEY_API_KEY (with USE_PORTKEY=true)."
         save_log(
             trace_id=trace_id,
             session_id=session_id,
@@ -86,7 +90,7 @@ def chat(session_id: str, message: str) -> Dict[str, Any]:
             error_message=error_msg
         )
         return {
-            "reply": f"⚠️ {error_msg} (Paste your Gemini key in .env)",
+            "reply": f"⚠️ {error_msg}",
             "session_id": session_id,
             "tools_used": []
         }
@@ -263,8 +267,10 @@ async def chat_stream(session_id: str, message: str):
             messages_payload.append(AIMessage(content=past["content"]))
     messages_payload.append(HumanMessage(content=message))
 
-    if not settings.GEMINI_API_KEY:
-        error_msg = "GEMINI_API_KEY missing in .env file."
+    # Check if appropriate API key is provided
+    has_valid_key = (settings.USE_PORTKEY and settings.PORTKEY_API_KEY) or bool(settings.GEMINI_API_KEY)
+    if not has_valid_key:
+        error_msg = "API key missing in .env file. Please add GEMINI_API_KEY (for direct Gemini) or PORTKEY_API_KEY (with USE_PORTKEY=true)."
         yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
         return
 
@@ -291,34 +297,50 @@ async def chat_stream(session_id: str, message: str):
                 "last_message": str(messages_payload[-1].content)[:500]
             })
 
-            # Check if this iteration has tool calls
+            # Stream tokens in real-time as the LLM generates them
+            full_response = None
+            yielded_any_text = False
             try:
-                response = llm_with_tools.invoke(messages_payload)
+                for chunk in llm_with_tools.stream(messages_payload):
+                    full_response = chunk if full_response is None else full_response + chunk
+                    if chunk.content:
+                        text_piece = extract_text_from_content(chunk.content)
+                        if text_piece:
+                            yielded_any_text = True
+                            yield f"data: {json.dumps({'type': 'chunk', 'text': text_piece})}\n\n"
             except Exception as invoke_exc:
                 if settings.USE_PORTKEY and settings.GEMINI_API_KEY and provider != "gemini (fallback)":
                     logger.warning("Portkey stream invocation failed (%s). Retrying with direct Gemini...", invoke_exc)
                     provider = "gemini (fallback)"
                     llm = get_direct_llm(model_name=model)
                     llm_with_tools = llm.bind_tools(TOOLS)
-                    response = llm_with_tools.invoke(messages_payload)
+                    full_response = None
+                    for chunk in llm_with_tools.stream(messages_payload):
+                        full_response = chunk if full_response is None else full_response + chunk
+                        if chunk.content:
+                            text_piece = extract_text_from_content(chunk.content)
+                            if text_piece:
+                                yielded_any_text = True
+                                yield f"data: {json.dumps({'type': 'chunk', 'text': text_piece})}\n\n"
                 else:
                     raise invoke_exc
 
             llm_latency_ms = round((time.perf_counter() - llm_start) * 1000, 2)
 
-            raw_reply_text = extract_text_from_content(response.content)
-            current_tool_calls = getattr(response, "tool_calls", [])
+            raw_reply_text = extract_text_from_content(full_response.content if full_response else "")
+            current_tool_calls = getattr(full_response, "tool_calls", []) if full_response else []
 
             # Token usage extraction
             tokens_in, tokens_out = 0, 0
-            usage = getattr(response, "usage_metadata", None)
-            if isinstance(usage, dict):
-                tokens_in = usage.get("input_tokens", 0)
-                tokens_out = usage.get("output_tokens", 0)
-            elif hasattr(response, "response_metadata") and isinstance(response.response_metadata, dict):
-                token_usage = response.response_metadata.get("token_usage", {})
-                tokens_in = token_usage.get("prompt_token_count", 0) or token_usage.get("prompt_tokens", 0)
-                tokens_out = token_usage.get("candidates_token_count", 0) or token_usage.get("completion_tokens", 0)
+            if full_response:
+                usage = getattr(full_response, "usage_metadata", None)
+                if isinstance(usage, dict):
+                    tokens_in = usage.get("input_tokens", 0)
+                    tokens_out = usage.get("output_tokens", 0)
+                elif hasattr(full_response, "response_metadata") and isinstance(full_response.response_metadata, dict):
+                    token_usage = full_response.response_metadata.get("token_usage", {})
+                    tokens_in = token_usage.get("prompt_token_count", 0) or token_usage.get("prompt_tokens", 0)
+                    tokens_out = token_usage.get("candidates_token_count", 0) or token_usage.get("completion_tokens", 0)
 
             save_log(
                 trace_id=trace_id,
@@ -336,18 +358,13 @@ async def chat_stream(session_id: str, message: str):
                 status="success"
             )
 
-            messages_payload.append(response)
+            if full_response:
+                messages_payload.append(full_response)
 
             if not current_tool_calls:
-                # Stream the final answer chunk by chunk for the UI
-                # Yield text in chunks to create the smooth streaming experience
-                chunk_size = 8
-                words = raw_reply_text.split(" ")
-                for i in range(0, len(words), chunk_size):
-                    chunk = " ".join(words[i:i + chunk_size])
-                    if i + chunk_size < len(words):
-                        chunk += " "
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+                # If for any reason text was not yielded during stream, yield it now
+                if not yielded_any_text and raw_reply_text:
+                    yield f"data: {json.dumps({'type': 'chunk', 'text': raw_reply_text})}\n\n"
 
                 save_message(session_id=session_id, role="assistant", content=raw_reply_text)
                 yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tools_used': list(dict.fromkeys(tools_used))})}\n\n"

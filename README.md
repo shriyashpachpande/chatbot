@@ -1,199 +1,217 @@
-# Enterprise AI Assistant & Observability Platform
+# 🤖 Enterprise AI Assistant & Observability Platform
 
-A full-stack, enterprise-grade conversational AI assistant powered by Google Gemini with dual routing architecture: direct API calls or via the **Portkey AI Gateway**. The platform features real-time Server-Sent Events (SSE) streaming, persistent conversation session memory, autonomous agent tools (real-time web search and secure web scraping with SSRF protection), and end-to-end observability with local SQLite audit logging and Portkey cloud analytics.
+A full-stack, enterprise-ready conversational AI assistant built with **FastAPI**, **LangChain**, and **Google Gemini**, featuring **Portkey AI Gateway** integration with seamless automatic fallback, real-time token-by-token streaming, persistent multi-thread conversation history, autonomous agent tools (web search and webpage scraping), and dual local/cloud observability.
+
+---
+
+## 🌟 Key Features
+
+- **ChatGPT/Claude Style Interface**: Modern 2-column desktop sidebar with dark glassmorphism design, full conversation threads, conversation renaming, deleting, and keyboard shortcuts (`Ctrl+K` for new chat).
+- **True Real-Time Token Streaming**: Server-Sent Events (SSE) streaming tokens word-by-word with zero buffering or delay.
+- **Rich Markdown & Code Highlighting**: Full GitHub Flavored Markdown (GFM) rendering with syntax-highlighted code blocks, language badges, and one-click code copy buttons.
+- **Dual-Routing LLM Architecture**:
+  - **Option 1 (Direct Gemini)**: Native connection to Google AI Studio via `ChatGoogleGenerativeAI`.
+  - **Option 2 (Portkey AI Gateway)**: Standard OpenAI-compatible routing (`ChatOpenAI`) via Portkey with centralized tracing, analytics, and virtual keys.
+  - **Automatic Fallback**: If Portkey Gateway is unavailable or fails, requests automatically fall back to Direct Gemini without user downtime.
+- **Autonomous Agent Tools**:
+  - `web_search`: Live search via DuckDuckGo (`ddgs`) for real-time news and up-to-date facts.
+  - `fetch_url`: Safe webpage scraper with SSRF (Server-Side Request Forgery) protection.
+- **Full Observability & Audit Logging**:
+  - Local embedded dashboard at `/logs.html` for inspecting execution traces, token consumption, latency, and sanitized payloads.
+  - Optional cloud dashboard correlation on Portkey AI via unified `trace_id`.
+
+---
+
+## 💡 What is Portkey AI? (For Beginners)
+
+If you are new to AI engineering, you might wonder: **"What is Portkey and why do I need it?"**
+
+Normally, an application connects directly to an LLM provider (like Google Gemini or OpenAI). However, in production, you often need:
+1. **Observability**: Tracking how many tokens you use, what your queries cost, and how fast the model responds.
+2. **Unified API Gateway**: Calling multiple providers (Gemini, Claude, GPT-4) using a single standard format (OpenAI-compatible) without installing vendor-specific libraries.
+3. **Virtual Keys**: Managing API keys securely in the cloud without storing raw provider keys in your local `.env` files.
+4. **Reliability & Fallbacks**: Automatically retrying or routing to a fallback model if a provider experiences outages.
+
+**[Portkey AI](https://portkey.ai/)** acts as an intelligent proxy between your application and your AI models to handle all of this. In this project:
+- We use the Portkey Gateway **without requiring the heavy `portkey-ai` library** (using standard HTTP headers and `ChatOpenAI`).
+- You can run the app with **only Portkey**, **only Gemini**, or **both with automatic fallback**.
+
+---
+
+## 🔄 Dual-Routing & Automatic Fallback Architecture
+
+| Scenario | Configuration | What Happens Under the Hood | Required Keys |
+|---|---|---|---|
+| **Direct Google Gemini** (Simplest) | `USE_PORTKEY=false` | App talks directly to Google AI Studio via LangChain's `ChatGoogleGenerativeAI`. | Only `GEMINI_API_KEY` |
+| **Portkey Gateway** (Recommended for Analytics) | `USE_PORTKEY=true` | App sends requests to Portkey Gateway (`https://api.portkey.ai/v1`) using `ChatOpenAI`. Portkey logs traces and routes to Gemini. | `PORTKEY_API_KEY` (Gemini key can be stored in Portkey dashboard) |
+| **Automatic Fallback** | `USE_PORTKEY=true` with both keys present | If Portkey network call fails or times out, the system automatically falls back to Direct Gemini so the user never gets an error. | Both `PORTKEY_API_KEY` and `GEMINI_API_KEY` |
+
+```
+                       [Browser Client (Web UI)]
+                                  │
+                                  ▼  (SSE /chat/stream)
+                       [FastAPI Backend (app/main.py)]
+                                  │
+                                  ▼
+                   [LangChain Agent (app/chat_service.py)]
+                                  │
+                 ┌────────────────┴────────────────┐
+                 │                                 │
+     (If USE_PORTKEY = true)             (If USE_PORTKEY = false)
+                 │                                 │
+                 ▼                                 ▼
+       [Portkey AI Gateway]              [Direct Google Gemini]
+     (api.portkey.ai/v1)              (generativelanguage.googleapis.com)
+                 │                                 │
+                 │ (Automatic Fallback on error)  │
+                 └────────────────►────────────────┘
+                                  │
+                                  ▼
+                     [Autonomous Tools Execution]
+                     ├── web_search (DuckDuckGo)
+                     └── fetch_url (SSRF-protected)
+                                  │
+                                  ▼
+                    [Local SQLite Audit Logs (llm_logs)]
+```
+
+---
+
+## 🔑 How to Get Your API Keys
+
+You only need **at least one** of the following to run the application:
+
+### Option A: Get a Google Gemini API Key (Direct Mode)
+1. Visit [Google AI Studio](https://aistudio.google.com/).
+2. Sign in with your Google Account.
+3. Click on the **"Get API key"** button in the top left.
+4. Click **"Create API key"** (select or create a Google Cloud project).
+5. Copy the generated key and save it as `GEMINI_API_KEY` in your `.env` file.
+
+### Option B: Get a Portkey AI API Key (Gateway Mode)
+1. Sign up or log into [Portkey AI](https://app.portkey.ai/).
+2. In the left navigation bar, navigate to **Settings** ➔ **API Keys**.
+3. Click **"Add Key"**, name your key, and copy the secret key.
+4. Set `PORTKEY_API_KEY=your_key_here` and `USE_PORTKEY=true` in your `.env` file.
+5. *(Optional but recommended)*: In your Portkey dashboard, go to **Virtual Keys** or **Integrations**, add your Gemini API key there. Now your application doesn't even need `GEMINI_API_KEY` in the local `.env`!
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Backend Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.10+) with [Uvicorn](https://www.uvicorn.org/) ASGI server
+- **Backend Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.10+) with [Uvicorn](https://www.uvicorn.org/)
 - **LLM Orchestration**: [LangChain](https://www.langchain.com/) (`langchain-core`, `langchain-google-genai`, `langchain-openai`)
-- **AI Gateway & Observability**: [Portkey AI](https://portkey.ai/) (`portkey-ai`, unified gateway, model catalog routing)
-- **Database & ORM**: SQLite with [SQLAlchemy](https://www.sqlalchemy.org/)
-- **Agent Tools**: [DuckDuckGo Search](https://pypi.org/project/ddgs/) (`ddgs`), [Trafilatura](https://trafilatura.readthedocs.io/), [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/), [HTTPX](https://www.python-httpx.org/)
-- **Frontend UI**: Vanilla HTML5, Vanilla CSS3 (Custom Executive Dark Glassmorphism), Modern JavaScript (ES6+), [Bootstrap 5](https://getbootstrap.com/), [Bootstrap Icons](https://icons.getbootstrap.com/)
+- **AI Gateway & Observability**: [Portkey AI](https://portkey.ai/) (Standard OpenAI-compatible REST integration)
+- **Database & Storage**: SQLite with [SQLAlchemy](https://www.sqlalchemy.org/) ORM
+- **Agent Tools**: [DuckDuckGo Search](https://pypi.org/project/ddgs/) (`ddgs`), [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/), [HTTPX](https://www.python-httpx.org/)
+- **Frontend UI**: Vanilla JavaScript (ES6+), Vanilla CSS3, Bootstrap 5, Marked.js (Markdown), Highlight.js (Code highlighting)
 
 ---
 
-## 📁 Folder Structure
+## 📁 Directory Structure
 
 ```
 chatbot/
 ├── app/
-│   ├── __init__.py          # Python package initializer
-│   ├── main.py              # FastAPI application, CORS, static mounts, and API routes
+│   ├── __init__.py          # Package initializer
+│   ├── main.py              # FastAPI app, API routes, static mounts
 │   ├── config.py            # Pydantic BaseSettings loading from .env
-│   ├── database.py          # SQLite engine, models (Message, LLMLog), and CRUD queries
-│   ├── llm.py               # Dual-mode LLM factory (Direct Gemini vs Portkey Gateway)
-│   ├── chat_service.py      # LangChain agent loop, memory, tool binding, and streaming
-│   └── tools.py             # Agent tools: web_search & fetch_url with SSRF protection
+│   ├── database.py          # SQLite engine, models (ChatSession, Message, LLMLog)
+│   ├── llm.py               # Dual-routing LLM factory (Direct Gemini vs Portkey Gateway)
+│   ├── chat_service.py      # Agent loop, memory, tool execution, and token streaming
+│   └── tools.py             # Autonomous agent tools: web_search & fetch_url
 ├── static/
-│   ├── index.html           # Modern chat interface with suggestion cards and sidebar
-│   ├── style.css            # Dark glassmorphism styling, ambient lighting, animations
-│   ├── script.js            # Frontend chat client, SSE parser, session storage manager
-│   ├── logs.html            # Observability dashboard with metrics, filters, and modals
-│   ├── logs.css             # Dedicated styling for execution logs, table, and timeline
-│   └── logs.js              # Logs dashboard controller, trace visualizer, auto-refresh
-├── .env                     # Environment variables (API keys, models, gateway settings)
-├── .gitignore               # Ignored directories (venv, databases, caches, logs)
-├── requirements.txt         # Project Python dependencies
-├── chatbot.db               # SQLite database file (auto-generated on startup)
-└── README.md                # Comprehensive documentation and architecture guide
+│   ├── index.html           # Modern ChatGPT-style chat workspace
+│   ├── style.css            # Executive dark glassmorphism styling & animations
+│   ├── script.js            # Frontend client, SSE stream parser, markdown renderer
+│   ├── logs.html            # Observability dashboard with metrics & trace view
+│   ├── logs.css             # Observability styling
+│   └── logs.js              # Logs dashboard controller & trace timeline
+├── .env                     # Local environment variables
+├── .env.example             # Template for environment configuration
+├── requirements.txt         # Python dependencies
+├── chatbot.db               # SQLite database (auto-created on startup)
+└── README.md                # Documentation and architecture guide
 ```
 
 ---
 
-## 🚀 Setup & Installation
+## 🚀 Installation & Setup
 
-### 1. Prerequisites & Virtual Environment
-Ensure Python 3.10+ is installed on your system.
-
+### 1. Clone & Navigate
 ```bash
-# Clone or navigate to the repository
+git clone https://github.com/shriyashpachpande/chatbot.git
 cd chatbot
+```
 
+### 2. Create and Activate Virtual Environment
+```bash
 # Create virtual environment
 python -m venv venv
 
-# Activate virtual environment
-# Windows (PowerShell):
+# Activate on Windows (PowerShell):
 .\venv\Scripts\Activate.ps1
-# Windows (CMD):
+
+# Activate on Windows (CMD):
 .\venv\Scripts\activate.bat
-# Linux / macOS:
+
+# Activate on Linux / macOS:
 source venv/bin/activate
 ```
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment Variables (`.env`)
-Create or edit the `.env` file in the project root directory:
+### 4. Configure `.env` File
+Create a `.env` file in the project root:
 
 ```env
-# Google Gemini Credentials
-GEMINI_API_KEY=your_google_gemini_api_key_here
-GEMINI_MODEL=gemini-3.1-flash-lite
+# ==========================================
+# Option 1: Direct Google Gemini (Default)
+# ==========================================
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
 
-# Database Configuration
+# Database URL (Default: local SQLite)
 DATABASE_URL=sqlite:///chatbot.db
 
-# Portkey AI Gateway Configuration
+# ==========================================
+# Option 2: Portkey AI Gateway
+# ==========================================
+# Set USE_PORTKEY=true if routing through Portkey Gateway
+USE_PORTKEY=false
 PORTKEY_API_KEY=your_portkey_api_key_here
-PORTKEY_PROVIDER=gemini
-USE_PORTKEY=true
+
+# Optional: Virtual Key or Provider Slug in Portkey
+PORTKEY_VIRTUAL_KEY=
+PORTKEY_PROVIDER=
 ```
 
-| Variable | Description |
-|---|---|
-| `GEMINI_API_KEY` | Google AI Studio Gemini API Key |
-| `GEMINI_MODEL` | Gemini Model identifier (e.g. `gemini-3.1-flash-lite`, `gemini-1.5-flash`) |
-| `DATABASE_URL` | SQLAlchemy connection string (default: `sqlite:///chatbot.db`) |
-| `PORTKEY_API_KEY` | Portkey API Key from your Portkey dashboard |
-| `PORTKEY_PROVIDER` | Integration slug configured in Portkey (e.g., `gemini`) |
-| `USE_PORTKEY` | `true` to route via Portkey Gateway; `false` for direct Gemini |
+### 5. Start the Application
+Make sure your virtual environment is active, then run:
 
-### 4. Run Development Server
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Open your browser:
-- **Chat Web Application**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
-- **Observability & Logs Dashboard**: [http://127.0.0.1:8000/logs.html](http://127.0.0.1:8000/logs.html)
-- **Interactive Swagger Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Chat Web App**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- **Observability Dashboard**: [http://127.0.0.1:8000/logs.html](http://127.0.0.1:8000/logs.html)
+- **Interactive Swagger API Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - **Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
 ---
 
-## 🏛️ Architecture Flow
+## 🔒 Security & Data Sanitization
 
-```
-[Browser Client (Web UI)]
-         │
-         ▼  (HTTP POST /chat or POST /chat/stream)
-[FastAPI Server (app/main.py)]
-         │
-         ▼
-[LangChain Agent Loop (app/chat_service.py)]
-   ├── 1. Persists user query to SQLite (`messages` table)
-   ├── 2. Loads last 20 messages for session memory
-   ├── 3. Generates unique turn `trace_id` (UUID4)
-   │
-   ▼
-[LLM Factory (app/llm.py)]
-   │
-   ├── If USE_PORTKEY = false ──► [ChatGoogleGenerativeAI] ──► [Google Gemini API]
-   │
-   └── If USE_PORTKEY = true  ──► [ChatOpenAI via Portkey Gateway]
-                                          │ (x-portkey-trace-id, metadata)
-                                          ▼
-                                   [Portkey AI Gateway (api.portkey.ai/v1)]
-                                          │
-                                          ▼
-                                   [Google Gemini API]
-   │
-   ├── [Tool Calling Check]
-   │    ├── Needs Tool? ──► Calls `web_search` or `fetch_url` (with SSRF check)
-   │    │                   Logs tool input/output to SQLite & continues loop
-   │    └── Final Answer? ──► Streams tokens to UI, saves assistant reply
-   │
-   ▼
-[Dual Audit Logging Destination]
-   ├── Local SQLite DB: `chatbot.db` (`llm_logs` table)
-   └── Cloud Gateway: Portkey Observability Dashboard (matched by `trace_id`)
-```
+1. **API Key Redaction**: `app/database.py` contains an automatic sanitization filter that strips all instances of `GEMINI_API_KEY` and `PORTKEY_API_KEY` from logs before they are saved to disk or transmitted to the UI.
+2. **SSRF Prevention**: `app/tools.py` validates requested domains and blocks private IP ranges (`127.0.0.1`, `localhost`, `10.0.0.0/8`, `192.168.0.0/16`, link-local, loopback, and multicast).
+3. **Safe Markdown Rendering**: Frontend uses safe DOM parsing to prevent XSS (Cross-Site Scripting).
 
 ---
 
-## 📊 Logging: SQLite vs. Portkey Comparison
+## 📄 License
 
-Both logging systems operate concurrently and are linked via `trace_id`.
-
-| Feature / Criteria | Own Local SQLite Logging | Portkey AI Gateway |
-|---|---|---|
-| **Data Control & Ownership** | 100% On-premise / Local | Hosted in Cloud |
-| **Setup Effort** | Zero (automatic SQLite table creation) | Low (requires Portkey API key & slug) |
-| **Dashboard Quality** | Lightweight embedded web viewer (`/logs.html`) | Full-featured enterprise analytics & tracing |
-| **Vendor Dependency** | None (self-hosted SQLite) | Dependent on Portkey cloud uptime |
-| **Cost** | Free (Local disk storage) | Free tier available / Usage-based pricing |
-| **Privacy & Security** | Sensitive data remains strictly local | Payloads pass through gateway |
-| **Key Features** | Custom SQL queries, zero egress, instant local inspect | Cost tracking, semantic caching, rate limiting |
-
----
-
-## 🔍 How to View Execution Logs
-
-1. **Embedded Web UI (`/logs.html`)**:
-   - Access [http://127.0.0.1:8000/logs.html](http://127.0.0.1:8000/logs.html) directly or click **Logs** in the chat header.
-   - Live metrics: Total calls, errors, average latency, and total tokens.
-   - Filter by status (`success`/`error`), session ID, or tool calls only.
-   - Click any **Trace ID** badge to visualize the chronological flow (LLM Call ➔ Tool Call ➔ LLM Call).
-   - Click any **row** to inspect raw request/response payloads with full JSON formatting and API key redaction.
-   - Toggle **Live (5s)** for real-time background polling.
-
-2. **DB Browser for SQLite**:
-   - Open `chatbot.db` with [DB Browser for SQLite](https://sqlitebrowser.org/).
-   - Inspect the `messages` and `llm_logs` tables directly.
-
-3. **Portkey Cloud Dashboard**:
-   - Log into [https://app.portkey.ai/](https://app.portkey.ai/).
-   - View latency percentiles, token consumption, request traces, and correlate logs using the same `trace_id`.
-
----
-
-## 🔒 Security & Data Protection
-
-- **API Key Redaction**: Automatic sanitizer in `app/database.py` strips `GEMINI_API_KEY` and `PORTKEY_API_KEY` from request/response bodies before persisting into `llm_logs`.
-- **SSRF Prevention**: `app/tools.py` resolves domains and blocks internal/private IP ranges (`127.0.0.1`, `localhost`, `10.0.0.0/8`, `192.168.0.0/16`, link-local, loopback, and multicast).
-- **XSS Prevention**: All frontend text renders using safe DOM manipulation and explicit HTML character escaping.
-
----
-
-## ⚠️ Known Limitations & Future Improvements
-
-- **Database Scaling**: SQLite is ideal for development and single-node setups. For distributed enterprise deployments, migrate to PostgreSQL via SQLAlchemy.
-- **RAG & Document Uploads**: Add vector database support (e.g., ChromaDB, pgvector) for PDF and document question-answering.
-- **User Authentication**: Implement JWT or OAuth2 authentication for multi-user session isolation.
+This project is licensed under the MIT License - feel free to use and modify for personal and commercial projects.

@@ -5,7 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.database import init_db, get_history, get_logs, get_trace_logs
+from app.database import (
+    init_db,
+    get_history,
+    get_logs,
+    get_trace_logs,
+    get_all_sessions,
+    update_session_title,
+    delete_session,
+)
 from app import chat_service
 
 app = FastAPI(title="AI Assistant Chatbot API")
@@ -65,6 +73,30 @@ async def chat_stream_endpoint(request: ChatRequest):
         media_type="text/event-stream"
     )
 
+
+
+class SessionTitleUpdate(BaseModel):
+    title: str
+
+
+@app.get("/sessions")
+def sessions_endpoint():
+    """Returns all chat sessions with generated titles, message counts, and timestamps."""
+    return get_all_sessions()
+
+
+@app.put("/sessions/{session_id}")
+def update_session_title_endpoint(session_id: str, payload: SessionTitleUpdate):
+    """Updates the title of a specific chat session."""
+    success = update_session_title(session_id=session_id, new_title=payload.title)
+    return {"status": "success" if success else "failed", "session_id": session_id, "title": payload.title}
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session_endpoint(session_id: str):
+    """Deletes a chat session and all associated messages."""
+    success = delete_session(session_id=session_id)
+    return {"status": "success" if success else "failed", "session_id": session_id}
 
 
 @app.get("/history/{session_id}")

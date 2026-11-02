@@ -45,17 +45,42 @@ class LLMLog(Base):
     error_message = Column(Text, nullable=True)
 
 
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    session_id = Column(String(128), unique=True, index=True, nullable=False)
+    title = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 def init_db():
     """Create tables automatically if they do not exist."""
     Base.metadata.create_all(bind=engine)
 
 
 def save_message(session_id: str, role: str, content: str) -> Dict[str, Any]:
-    """Saves a single message row into the messages table."""
+    """Saves a single message row and ensures the chat session exists with a title."""
     db = SessionLocal()
     try:
-        msg = Message(session_id=session_id, role=role, content=content, created_at=datetime.utcnow())
+        now = datetime.utcnow()
+        msg = Message(session_id=session_id, role=role, content=content, created_at=now)
         db.add(msg)
+
+        # Ensure chat_sessions table tracks this session
+        chat_sess = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        if not chat_sess:
+            clean_title = content.strip().replace("\n", " ")
+            if len(clean_title) > 36:
+                clean_title = clean_title[:34].rstrip() + "..."
+            if not clean_title:
+                clean_title = "New Chat"
+            chat_sess = ChatSession(session_id=session_id, title=clean_title, created_at=now, updated_at=now)
+            db.add(chat_sess)
+        else:
+            chat_sess.updated_at = now
+
         db.commit()
         db.refresh(msg)
         return {
@@ -224,3 +249,61 @@ def get_trace_logs(trace_id: str) -> List[Dict[str, Any]]:
         ]
     finally:
         db.close()
+
+
+def get_all_sessions() -> List[Dict[str, Any]]:
+    """Returns all chat sessions with their titles, message counts, and timestamps."""
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        # Fetch from chat_sessions table
+        sessions = db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
+        results = []
+        for s in sessions:
+            msg_count = db.query(func.count(Message.id)).filter(Message.session_id == s.session_id).scalar() or 0
+            results.append({
+                "session_id": s.session_id,
+                "title": s.title,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                "message_count": msg_count,
+            })
+        return results
+    finally:
+        db.close()
+
+
+def update_session_title(session_id: str, new_title: str) -> bool:
+    """Updates the custom title for a chat session."""
+    db = SessionLocal()
+    try:
+        s = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        if s:
+            s.title = new_title.strip()[:100] or "Conversation"
+            s.updated_at = datetime.utcnow()
+            db.commit()
+            return True
+        return False
+    except Exception:
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def delete_session(session_id: str) -> bool:
+    """Deletes all messages, session records, and logs associated with a session_id."""
+    db = SessionLocal()
+    try:
+        db.query(ChatSession).filter(ChatSession.session_id == session_id).delete(synchronize_session=False)
+        db.query(Message).filter(Message.session_id == session_id).delete(synchronize_session=False)
+        db.query(LLMLog).filter(LLMLog.session_id == session_id).delete(synchronize_session=False)
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+

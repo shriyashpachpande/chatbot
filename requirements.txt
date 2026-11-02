@@ -8,7 +8,6 @@ langchain-google-genai
 httpx
 ddgs
 trafilatura
-portkey-ai
 sqlalchemy
 beautifulsoup4
 langchain-openai
